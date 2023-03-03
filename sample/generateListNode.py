@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-
-import json
 import argparse
+import io
+import json
 from enum import Enum
+import numpy as np
 
 from fonctionGraph import generate_node, calcul_matrice_adjacente
 
@@ -33,6 +34,18 @@ class OutputType(Enum):
         return self.value
 
 
+def write_matrix_file(file: io.TextIOWrapper, matrix: np.ndarray, sep=","):
+    assert len(matrix.shape) == 2
+    na, nb = matrix.shape
+    assert na == nb
+    for i in range(na):
+        string_builder = ""
+        for j in range(na - 1):
+            string_builder += str(matrix[i, j]) + sep
+        string_builder += str(matrix[i, -1]) + "\n"
+        file.write(string_builder)
+
+
 if __name__ == '__main__':
     args = create_parser()
 
@@ -49,7 +62,10 @@ if __name__ == '__main__':
             args.map.close()
         list_node = {int(k): v for k, v in list_node.items()}
         matrix = calcul_matrice_adjacente(list_node)
-        matrix = matrix.tolist()
-        args.output.write(json.dumps(matrix))
-        args.output.close()
-
+        if args.output.name.endswith(".json"):
+            matrix = matrix.tolist()
+            args.output.write(json.dumps(matrix))
+            args.output.close()
+        elif args.output.name.endswith(".csv"):
+            write_matrix_file(args.output, matrix)
+            args.output.close()
