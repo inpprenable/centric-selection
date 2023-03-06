@@ -7,12 +7,13 @@ import os.path
 
 import numpy as np
 from pymoo.algorithms.soo.nonconvex.ga import GA
-from pymoo.factory import get_sampling, get_crossover, get_mutation, get_termination
+from pymoo.operators.crossover.pntx import TwoPointCrossover
+from pymoo.operators.mutation.bitflip import BitflipMutation
+from pymoo.operators.sampling.rnd import BinaryRandomSampling
 from pymoo.optimize import minimize
-from pymoo.problems.constr_as_penalty import ConstraintsAsPenalty
 from pymoo.problems.functional import FunctionalProblem
 
-from fonctionGraph import calcul_matrice_adjacente, get_weight_graph, bool_list_to_int
+from fonctionGraph import calcul_matrice_adjacente, get_weight_graph
 
 
 def create_parser() -> argparse.Namespace:
@@ -70,11 +71,11 @@ class MyFunctionalProblem(FunctionalProblem):
         self.matrix = matrix
         self.nb_val = nb_val
 
-        def func_obj(x):
+        def func_obj(x: list[bool]):
             return (1 if min else -1) * get_weight_graph(x, self.matrix)
 
         satisfy_validateur = lambda x: abs(np.sum(x) - self.nb_val)
-        super().__init__(nb_node, func_obj, constr_ieq=[], constr_eq=[satisfy_validateur], xl=0, xu=1, type_var=bool)
+        super().__init__(nb_node, func_obj, constr_ieq=[], constr_eq=[satisfy_validateur], xl=0, xu=1, vtype=bool)
 
 
 nb_link = lambda n: int(n * (n - 1) / 2)
@@ -102,16 +103,14 @@ if __name__ == '__main__':
             dico[nb_val] = {"min": math.inf, "max": 0}
 
         problem = MyFunctionalProblem(nb_val, matrix, not args.worst)
-        problem = ConstraintsAsPenalty(problem, penalty=1e6)
         algorithm = GA(pop_size=args.pop,
-                       sampling=get_sampling("bin_random"),
-                       crossover=get_crossover("bin_hux"),
-                       mutation=get_mutation("bin_bitflip"),
+                       sampling=BinaryRandomSampling(),
+                       crossover=TwoPointCrossover(),
+                       mutation=BitflipMutation(),
                        eliminate_duplicates=True)
-        res = minimize(problem, algorithm, get_termination("n_gen", args.gen), verbose=args.verbose > 0,
+        res = minimize(problem, algorithm, ("n_gen", args.gen), verbose=args.verbose > 0,
                        save_history=True)
-        solution = bool_list_to_int(res.X)
-        weigh_graph = get_weight_graph(res.X, matrix)
+        weigh_graph = problem.evaluate(res.X)[0].astype(float)[0]
         avg_weight = weigh_graph / nb_link(nb_val)
 
         if args.worst and dico[nb_val]["max"] < avg_weight:

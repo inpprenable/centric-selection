@@ -61,7 +61,7 @@ def generate_graph_from_pos(list_node: dict) -> nx.Graph:
     return G
 
 
-def get_weight_graph(list_node, matrix: np.ndarray) -> int:
+def get_weight_graph(list_node: list[bool], matrix: np.ndarray) -> int:
     weight = 0
     nb_node = len(list_node)
     for i in range(nb_node):
