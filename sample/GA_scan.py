@@ -21,7 +21,7 @@ def create_parser() -> argparse.Namespace:
     parser.add_argument("input", type=argparse.FileType('r', encoding='utf-8'), help="The adjacent matrix file")
     parser.add_argument("-o", "--output", type=str,
                         help="the file to store the results", default=None)
-    parser.add_argument("--min", type=int, default=4,
+    parser.add_argument("--min", type=int, default=2,
                         help="Set the minimal number of validator for the research")
     parser.add_argument("--max", type=int, default=math.inf,
                         help="Set the maximal number of validator for the research")
@@ -113,8 +113,8 @@ if __name__ == '__main__':
         weigh_graph = problem.evaluate(res.X)[0].astype(float)[0]
         avg_weight = weigh_graph / nb_link(nb_val)
 
-        if args.worst and dico[nb_val]["max"] < avg_weight:
-            dico[nb_val]["max"] = avg_weight
+        if args.worst and dico[nb_val]["max"] < -avg_weight:
+            dico[nb_val]["max"] = -avg_weight
         if not args.worst and dico[nb_val]["min"] > avg_weight:
             dico[nb_val]["min"] = avg_weight
 

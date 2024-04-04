@@ -22,14 +22,14 @@ def create_parser() -> argparse.Namespace:
                         help="Period of random change of the number of validator, set to 0 to never change (default)",
                         default=0)
     parser.add_argument('--evValStd', type=int,
-                        help="Std of Gaussian random change of the number of validator (default 5)",
-                        default=5)
+                        help="Std of Gaussian random change of the number of validator (default 0)",
+                        default=0)
     parser.add_argument("--evMapPeriod", type=int,
                         help="Period of random change of the node position, set to 0 to never change (default)",
                         default=0)
     parser.add_argument('--evMapStd', type=int,
-                        help="Std of Gaussian random change of the node position (default 5, avg = 0)",
-                        default=5)
+                        help="Std of Gaussian random change of the node position (default 0, avg = 0)",
+                        default=0)
     parser.add_argument("--ellipse", type=int, default=100,
                         help="Set the ellipse of iteration before the representation")
     parser.add_argument("--mu", type=float, help="The coefficient in the calculus", default=1)
@@ -42,14 +42,14 @@ def create_parser() -> argparse.Namespace:
     return args
 
 
-def select_center(list_validators: list, matrix: np.ndarray, past_center: np.ndarray) -> int:
+def select_center(list_validators: list, matrix: np.ndarray) -> int:
     N = len(matrix)
     # list_average_delay = [sum(delays) for delays in matrix]
     list_average_delay = [sum(delays[list_validators]) for delays in matrix]
-    list_potential_center = [node for node in list_validators if past_center[node] == 0]
+    list_potential_center = [node for node in list_validators]
     if len(list_potential_center) == 0:
         list_potential_center = [node for node in range(N) if
-                                 (node not in list_validators) and (past_center[node] == 0)]
+                                 (node not in list_validators)]
     center, center_delay = -1, math.inf
     for node in list_potential_center:
         if list_average_delay[node] < center_delay:
@@ -59,18 +59,8 @@ def select_center(list_validators: list, matrix: np.ndarray, past_center: np.nda
 
 
 class ConfigSelection:
-    def __init__(self, coef_eloignement: float, coef_keep_validator: float = 1, center_wait: int = 0):
-        self.coef_keep_validator = coef_keep_validator
-        self.center_wait = center_wait
+    def __init__(self, coef_eloignement: float):
         self.coef_eloignement = coef_eloignement
-        self.func_keep_val = lambda n, old_val: 1
-        if coef_keep_validator != 1:
-            self.func_keep_val = self.func_coef
-
-    def func_coef(self, node: int, old_validator: list) -> float:
-        if node in old_validator:
-            return self.coef_keep_validator
-        return 1
 
     def func_eloignement(self, t: float) -> float:
         return np.exp(t / self.coef_eloignement)
@@ -82,17 +72,15 @@ class Frame:
         self.config = config
         self.nb_node = nb_node
         self.nb_val = nb_node
-        self.past_center = np.zeros(nb_node, dtype=int)
-        self.past_validator = np.zeros(nb_node, dtype=float)
+        self.past_validator = np.zeros(nb_node, dtype=np.float128)
         self.validators = list(np.arange(nb_node))
 
-    def select_new_val(self, center: int, nb_val: int, matrix: np.ndarray, old_validator: list,
+    def select_new_val(self, center: int, nb_val: int, matrix: np.ndarray,
                        past_validators: np.ndarray) -> list:
         N = len(matrix)
         delays = np.zeros(N)
         for i in range(N):
-            delays[i] = self.config.func_keep_val(i, old_validator) * matrix[center, i] * self.config.func_eloignement(
-                past_validators[i])
+            delays[i] = matrix[center, i] * self.config.func_eloignement(past_validators[i])
         potential_validators = np.arange(N)
         potential_validators_sorted = [x for _, x in sorted(zip(delays, potential_validators))]
         return potential_validators_sorted[: nb_val]
@@ -101,12 +89,8 @@ class Frame:
         self.timestamp += 1
         N = self.nb_node
         self.nb_val = nb_val
-        self.center = select_center(self.validators, matrix, self.past_center)
-        for i in range(N):
-            if self.past_center[i] > 0:
-                self.past_center[i] -= 1
-        self.past_center[self.center] = self.config.center_wait
-        self.validators = self.select_new_val(self.center, nb_val, matrix, self.validators, self.past_validator)
+        self.center = select_center(self.validators, matrix)
+        self.validators = self.select_new_val(self.center, nb_val, matrix, self.past_validator)
         self.uptade_past(N)
 
     def uptade_past(self, N: int):

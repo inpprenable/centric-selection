@@ -1,3 +1,5 @@
+from typing import Type
+
 import networkx as nx
 import numpy as np
 
@@ -19,10 +21,20 @@ def generate_matrix(nb_node: int) -> np.ndarray:
     return matrix
 
 
+def is_closed_to_one_node(candidate: tuple, list_node: dict, threshold=1):
+    for node in list_node.values():
+        if int(calcul_distance_two_nodes(candidate, node)) < threshold:
+            return False
+    return True
+
+
 def generate_node(height: float, width: float, nb_node: int) -> dict:
     list_node = {}
     for i in range(nb_node):
-        list_node[i] = (np.random.rand() * height, np.random.rand() * width)
+        candidate = None
+        while candidate is None or not is_closed_to_one_node(candidate, list_node):
+            candidate = (np.random.rand() * height, np.random.rand() * width)
+        list_node[i] = candidate
     return list_node
 
 
@@ -30,12 +42,12 @@ def calcul_distance_two_nodes(nodeA: tuple, nodeB: tuple) -> float:
     return np.sqrt(np.square(nodeA[0] - nodeB[0]) + np.square(nodeA[1] - nodeB[1]))
 
 
-def calcul_matrice_adjacente(dict_node: dict) -> np.ndarray:
+def calcul_matrice_adjacente(dict_node: dict, dtype: Type = float) -> np.ndarray:
     nb_node = len(dict_node)
-    matrix = np.zeros((nb_node, nb_node), dtype=int)
+    matrix = np.zeros((nb_node, nb_node), dtype=dtype)
     for i in range(nb_node):
         for j in range(i + 1, nb_node):
-            matrix[i, j] = int(calcul_distance_two_nodes(dict_node[i], dict_node[j]))
+            matrix[i, j] = dtype(calcul_distance_two_nodes(dict_node[i], dict_node[j]))
             matrix[j, i] = matrix[i, j]
     return matrix
 
