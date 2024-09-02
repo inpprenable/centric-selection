@@ -3,8 +3,8 @@ import argparse
 import csv
 import json
 import math
+import multiprocessing as mp
 import os.path
-import time
 
 import numpy as np
 from pymoo.algorithms.soo.nonconvex.ga import GA
@@ -81,8 +81,30 @@ class MyFunctionalProblem(FunctionalProblem):
 
 nb_link = lambda n: int(n * (n - 1) / 2)
 
+
+def process_minimization(nb_val, arg_GA, matrix):
+    """
+    Process the minimization of the problem
+    :param nb_val: the number of validator
+    :param arg_GA: the arguments: [worst, pop, gen, verbose]: List[bool, int, int, int]
+    :param matrix: the matrix of the graph
+    :return: the number of validator and the average weight
+    """
+    problem = MyFunctionalProblem(nb_val, matrix, not arg_GA[0])
+    algorithm = GA(pop_size=arg_GA[1],
+                   sampling=BinaryRandomSampling(),
+                   crossover=TwoPointCrossover(),
+                   mutation=BitflipMutation(),
+                   eliminate_duplicates=True)
+    res = minimize(problem, algorithm, ("n_gen", arg_GA[2]), verbose=arg_GA[3] > 0,
+                   save_history=True)
+    weigh_graph = problem.evaluate(res.X)[0].astype(float)[0]
+    avg_weight = weigh_graph / nb_link(nb_val)
+
+    return nb_val, avg_weight
+
+
 if __name__ == '__main__':
-    t0 = time.time()
     args = create_parser()
     data = json.loads(args.input.read())
     list_node, matrix = None, None
@@ -100,33 +122,21 @@ if __name__ == '__main__':
 
     dico = read_csv(args.output)
 
-    for nb_val in range(min_val, max_val + 1):
+    arg_GA = [args.worst, args.pop, args.gen, args.verbose]
+
+    with mp.Pool(mp.cpu_count()) as pool:
+        results = pool.starmap(process_minimization,
+                               [(nb_val, arg_GA, matrix) for nb_val in range(min_val, max_val + 1)])
+
+    for nb_val, avg_weight in results:
         if nb_val not in dico:
             dico[nb_val] = {"min": math.inf, "max": 0}
-
-        problem = MyFunctionalProblem(nb_val, matrix, not args.worst)
-        algorithm = GA(pop_size=args.pop,
-                       sampling=BinaryRandomSampling(),
-                       crossover=TwoPointCrossover(),
-                       mutation=BitflipMutation(),
-                       eliminate_duplicates=True)
-        res = minimize(problem, algorithm, ("n_gen", args.gen), verbose=args.verbose > 0,
-                       save_history=True)
-        weigh_graph = problem.evaluate(res.X)[0].astype(float)[0]
-        avg_weight = weigh_graph / nb_link(nb_val)
-
         if args.worst and dico[nb_val]["max"] < -avg_weight:
             dico[nb_val]["max"] = -avg_weight
         if not args.worst and dico[nb_val]["min"] > avg_weight:
             dico[nb_val]["min"] = avg_weight
 
         if args.output is not None:
-            total = max_val + 1 - min_val
-            i = nb_val - min_val
-            if i % (total // 10) == 0:
-                print("{}/100".format(int(100 * i / total)))
             write_csv(args.output, dico)
         else:
             print(nb_val, dico[nb_val])
-    t1 = time.time()
-    print("Time: ", t1 - t0)

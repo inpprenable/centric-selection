@@ -29,6 +29,8 @@ def create_parser() -> argparse.Namespace:
                         help="Set the number of generation")
     parser.add_argument("--step", type=int, default=1,
                         help="Set the step in the loop of number of validator for the research")
+    parser.add_argument("--horizon", type=int, default=200,
+                        help="Set the horizon of the simulation")
     args = parser.parse_args()
     return args
 
