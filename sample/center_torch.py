@@ -1,4 +1,6 @@
+import argparse
 import json
+import math
 import os
 import time
 from abc import ABC
@@ -6,9 +8,45 @@ from abc import ABC
 import numpy as np
 import torch
 
-from sample.center_scan import create_parser, gini_coefficient, worst_standard_deviation, \
-    gini_coefficient_worst, write_csv
+from sample.center_scan import gini_coefficient, worst_standard_deviation, \
+    gini_coefficient_worst, write_csv, read_csv
 from sample.fonctionGraph import calcul_matrice_adjacente, generate_node
+
+
+def is_correct_float(value: str) -> float:
+    try:
+        value = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"'{value}' is not a valid float")
+    if not (value >= 1):
+        raise argparse.ArgumentTypeError(f"'{value}' is not a valid float, it must be greater than 1")
+    return value
+
+
+def create_parser() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description='Solve a range of parcours with our selection')
+    parser.add_argument("input", type=str, help="The position node file")
+    parser.add_argument("-o", "--output", type=str,
+                        help="the file to store the results", default=None)
+    parser.add_argument("--mu", type=float, help="The coefficient in the calculus", default=1)
+    parser.add_argument("--min", type=int, default=4,
+                        help="Set the minimal number of validator for the research")
+    parser.add_argument("--elipse", type=int, default=10,
+                        help="Set the elipse of iteration before the sampling")
+    parser.add_argument("--max", type=int, default=math.inf,
+                        help="Set the maximal number of validator for the research")
+    parser.add_argument('--verbose', '-v', action='count', default=0)
+    parser.add_argument("--conf", help="Print confidence intervals", action="store_true", default=False)
+    parser.add_argument("--gen", type=int, default=1,
+                        help="Set the number of generation")
+    parser.add_argument("--step", type=int, default=1,
+                        help="Set the step in the loop of number of validator for the research")
+    parser.add_argument("--horizon", type=int, default=200,
+                        help="Set the horizon of the simulation")
+    parser.add_argument("-r", "--random", type=is_correct_float, default=1,
+                        help="The random factor, selected nodes are chosen from the random factor * N closest nodes")
+    args = parser.parse_args()
+    return args
 
 
 def select_center(list_validators: torch.Tensor, matrix: torch.Tensor) -> int:
@@ -51,11 +89,28 @@ def get_list_weight_torch(validators: torch.Tensor, matrix: torch.Tensor) -> tor
 
 
 class ConfigSelection:
-    def __init__(self, coef_eloignement: float):
+    def __init__(self, coef_eloignement: float, random_factor: float == 1):
         self.coef_eloignement = coef_eloignement
+        self.random_factor = random_factor
 
     def func_eloignement(self, t: torch.Tensor) -> torch.Tensor:
         return torch.exp(t / self.coef_eloignement)
+
+    def get_random_factor(self, sorted_indices: torch.Tensor, nb_val: int) -> torch.Tensor:
+        # Si le facteur aléatoire est 1, retourner les nb_val premiers éléments
+        if self.random_factor == 1:
+            return sorted_indices[:nb_val]
+
+        N = sorted_indices.size(0)
+
+        # Calculer le nombre maximum d'indices à considérer, en limitant à N
+        max_indices_to_select = min(int(self.random_factor * nb_val), N)
+
+        # Générer une permutation aléatoire des indices dans cet intervalle
+        indices = torch.randperm(max_indices_to_select)[:nb_val]
+
+        # Retourner les éléments correspondants dans sorted_indices
+        return sorted_indices[indices]
 
 
 class PastValidator(ABC):
@@ -116,8 +171,9 @@ class Frame:
         delays = matrix[center, :] * self.config.func_eloignement(self.get_sum_validators())
         # Obtenir les indices triés en fonction des délais
         _, sorted_indices = torch.sort(delays)
-        # Sélectionner les 'nb_val' premiers indices (les plus proches)
-        return sorted_indices[:nb_val]
+        # # Sélectionner les 'nb_val' premiers indices (les plus proches)
+        # return sorted_indices[:nb_val]
+        return self.config.get_random_factor(sorted_indices, nb_val)
 
     def update(self, matrix: torch.Tensor, nb_val: int):
         self.timestamp += 1
@@ -204,8 +260,7 @@ if __name__ == '__main__':
     max_val = min(args.max, nb_node)
     nb_gen = args.gen
     elipse = args.elipse
-    # dico = read_csv(args.output)
-    dico = {}
+    dico = read_csv(args.output)
     total = max_val + 1 - min_val
     for nb_val in range(min_val, max_val + 1, args.step):
         i = nb_val - min_val
@@ -217,7 +272,7 @@ if __name__ == '__main__':
                             "time_val_avg": 0, "time_val_std": 0, "temps_calcul": 0,
                             "gini_coef": 0, "gini_coef_r": 0}
         if nb_gen > dico[nb_val]["nb_gen"]:
-            config = ConfigSelection(args.mu)
+            config = ConfigSelection(args.mu, args.random)
             frame = Frame(nb_node, args.horizon, config)
             metric = Metric(nb_node)
 
