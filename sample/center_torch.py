@@ -222,24 +222,27 @@ class Matrix:
 
 
 class Metric:
-    def __init__(self, nb_node: int):
+    def __init__(self, nb_node: int, horizon: int = 0, follow_gini: bool = False):
         self.nb_node = nb_node
-        self.avg_weight, self.median_weight, self.max_weight = [], [], []
+        self.avg_weight = []
         self.timestamp = 0
-        self.time_validator = torch.zeros(nb_node, dtype=torch.float)
-        self.prev_val = None
+        self._follow_gini = follow_gini
+        self.gini = []
+        if horizon == 0:
+            self.past_validator = PastValidatorUnbounded(nb_node)
+        else:
+            self.past_validator = PastValidatorWindow(horizon, nb_node)
 
     def update_frame(self, frame: Frame, matrix: torch.Tensor):
-        self.prev_val = frame.validators.clone()
         self.timestamp += 1
         weights = frame.calcul_metric(matrix)
         self.avg_weight.append(weights[0])
-        # self.median_weight.append(weights[1])
-        # self.max_weight.append(weights[2])
 
-        increment = torch.zeros_like(self.time_validator)
+        increment = torch.zeros(self.nb_node, dtype=torch.float)
         increment[frame.validators] = 1
-        self.time_validator += increment
+        self.past_validator.update(increment)
+        if self._follow_gini:
+            self.gini.append(gini_coefficient(self.past_validator.get_sum_validators().numpy()))
 
     def get_avg_weight_info(self) -> tuple:
         """
@@ -249,6 +252,9 @@ class Metric:
             return 0, 0
         avg_weight = np.array(self.avg_weight)
         return np.mean(avg_weight), np.std(avg_weight)
+
+    def get_time_validator(self) -> np.ndarray:
+        return self.past_validator.get_sum_validators().numpy()
 
 
 if __name__ == '__main__':
@@ -286,13 +292,14 @@ if __name__ == '__main__':
                 metric.update_frame(frame, liste_node_matrix.current_matrix)
             t2 = time.time()
             avg_weight_mean, avg_weight_std = metric.get_avg_weight_info()
-            gini_index = gini_coefficient(metric.time_validator.numpy())
+            time_validator = metric.get_time_validator()
+            gini_index = gini_coefficient(time_validator)
             dico[nb_val] = {"avg_weight": avg_weight_mean, "nb_gen": nb_gen,
                             "std": avg_weight_std,
                             "std_r": 0 if nb_val == nb_node else avg_weight_std / worst_standard_deviation(nb_val,
                                                                                                            nb_node),
-                            "time_val_avg": metric.time_validator.mean().item() / nb_gen,
-                            "time_val_std": metric.time_validator.std().item() / nb_gen,
+                            "time_val_avg": time_validator.mean() / nb_gen,
+                            "time_val_std": time_validator.std() / nb_gen,
                             "temps_calcul": (t2 - t1) / nb_gen,
                             "gini_coef": gini_index,
                             "gini_coef_r": 0 if nb_val == nb_node else gini_index / gini_coefficient_worst(nb_val,

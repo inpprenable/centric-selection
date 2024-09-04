@@ -104,8 +104,12 @@ if __name__ == '__main__':
         plt.legend()
         plt.grid(True)
 
-        # Afficher le graphique
-        plt.show()
+        if args.output is not None:
+            list_elements = args.output.split(".")
+            plt.savefig(list_elements[0] + "_weight." + list_elements[1])
+        else:
+            # Afficher le graphique
+            plt.show()
 
     if args.csv:
         # Initialisation d'un DataFrame vide pour commencer la fusion
@@ -155,5 +159,9 @@ if __name__ == '__main__':
         plt.legend()
         plt.grid(True)
 
-        # Afficher le graphique
-        plt.show()
+        if args.output is not None:
+            list_elements = args.output.split(".")
+            plt.savefig(list_elements[0] + "_gini." + list_elements[1])
+        else:
+            # Afficher le graphique
+            plt.show()
