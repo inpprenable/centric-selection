@@ -44,7 +44,6 @@ if __name__ == '__main__':
             max_std=('max', 'std')
         ).reset_index()
     if args.output is not None:
-        result.to_csv(args.output, index=False)
+        result.to_csv(args.output, index=False, sep="\t")
     else:
         print(result)
-

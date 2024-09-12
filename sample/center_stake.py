@@ -29,7 +29,7 @@ def create_parser() -> argparse.Namespace:
     parser.add_argument("--mu", type=float, help="The coefficient in the calculus", default=1)
     parser.add_argument("--nb", type=int, default=10,
                         help="Set the default number of validator for the research")
-    parser.add_argument("--elipse", type=int, default=10,
+    parser.add_argument("--elipse", type=int, default=0,
                         help="Set the elipse of iteration before the sampling")
     parser.add_argument('--verbose', '-v', action='count', default=0)
     parser.add_argument("--conf", help="Print confidence intervals", action="store_true", default=False)
@@ -136,25 +136,17 @@ class Frame:
         self.nb_val = nb_val
         self.center = select_center(self.validators, matrix)
         self.validators = self.select_new_val(self.center, nb_val, matrix)
-        self.uptade_past(stake)
+        self.update_past(stake)
 
-    def uptade_past(self, stake: torch.Tensor):
+    def update_past(self, stake: torch.Tensor):
         N = self.nb_node
         total_stake_used = stake[self.validators].sum()
         non_used_stake = stake.sum() - total_stake_used
         if self.nb_val != self.nb_node:
             adjustement = -stake.float() / non_used_stake
-            adjustement[
-                self.validators] = (1 - stake[self.validators].float() / total_stake_used) / (self.nb_val - 1)
-            # avg_stake = (stake / total_stake_used).mean()
-            # adjustement = torch.ones(N, dtype=torch.float)/ non_used_stake
-            # adjustement[self.validators] = (1 - 1 / avg_stake)/ non_used_stake
-            # adjustement[self.validators] = 1 / self.nb_val
+            adjustement[self.validators] = (1 - stake[self.validators].float() / total_stake_used) / (self.nb_val - 1)
         else:
             adjustement = torch.ones(N, dtype=torch.float) / N
-        relative_stake = stake / stake.sum() + 1
-
-        adjustement = adjustement * relative_stake
         self.past_validator.update(adjustement)
 
     def calcul_metric(self, matrix: torch.Tensor) -> tuple:
@@ -174,10 +166,21 @@ def stake_distribution(nb_node: int) -> np.ndarray:
 
     y += norm.pdf(x, mean + 50, std_dev) * 0.5
 
+    y = y /2.5
+
     # Arrondir les valeurs de y à l'entier supérieur et s'assurer qu'elles sont >= 1
     y = np.ceil(y * 250).astype(int)
     y[y < 1] = 1
     return y
+
+
+def proba_select(stake: torch.Tensor, nb_val: int) -> torch.Tensor:
+    N = stake.size(0)
+    avg_stake_non_user = (stake.sum() - stake) / (N - 1)
+    proba_n_select_nb_val = torch.ones(N)
+    for i in range(nb_val):
+        proba_n_select_nb_val *= 1 - stake / (stake + (N - 1 - i) * avg_stake_non_user)
+    return 1 - proba_n_select_nb_val
 
 
 if __name__ == '__main__':
@@ -195,9 +198,12 @@ if __name__ == '__main__':
     metric = Metric(nb_node, 0, True)
 
     stake = stake_distribution(nb_node)
+    print("Gini stake : ", gini_coefficient(stake))
     stake = torch.Tensor(stake)
 
     neutral_stake = torch.ones(nb_node)
+    # stake = neutral_stake
+    torch.no_grad()
 
     for i in range(elipse):
         # liste_node_matrix.update()
@@ -244,6 +250,7 @@ if __name__ == '__main__':
     plt.title('Stake Distribution')
     plt.subplot(3, 1, 2)
     plt.plot(time_validator / nb_gen, label='Time Validator')
+    plt.plot(proba_select(stake, nb_val), label='Time Validator', linestyle='--')
     plt.title('Time Validator')
     plt.subplot(3, 1, 3)
     sum_val = frame.get_sum_validators()

@@ -5,10 +5,6 @@ import os
 import matplotlib.pyplot as plt
 import pandas as pd
 
-# Liste des fichiers CSV à lire (vous pouvez adapter le chemin et l'extension selon vos besoins)
-file_list = glob.glob(
-    "/home/guilain/PycharmProjects/centric-selection/test/results_*.csv")  # Remplacez par le chemin où se trouvent vos fichiers
-
 
 def is_directory(path):
     if os.path.isdir(path):
@@ -37,6 +33,11 @@ if __name__ == '__main__':
     file_list = glob.glob(f'{args.input}/{args.prefix}*.csv')
 
     file_list = sorted(file_list)
+    file_label = [
+        (file, float(file.split('/')[-1].split('.csv')[0].split(args.prefix)[1])) for file in file_list
+    ]
+    sorted_file_label = sorted(file_label, key=lambda x: x[1])
+    file_list = [file[0] for file in sorted_file_label]
 
     if len(file_list) == 0:
         print(f"No file found with prefix {args.prefix}")
@@ -76,7 +77,7 @@ if __name__ == '__main__':
 
         if args.output is not None:
             new_file_name = args.output.split(".csv")[0] + "_weight.csv"
-            merged_df.to_csv(new_file_name, index=False)
+            merged_df.to_csv(new_file_name, index=False, sep="\t")
         else:
             print(merged_df)
 
@@ -134,7 +135,7 @@ if __name__ == '__main__':
 
         if args.output is not None:
             new_file_name = args.output.split(".csv")[0] + "_gini.csv"
-            merged_df.to_csv(new_file_name, index=False)
+            merged_df.to_csv(new_file_name, index=False, sep="\t")
         else:
             print(merged_df)
     else:
