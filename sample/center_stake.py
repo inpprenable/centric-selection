@@ -2,13 +2,13 @@ import argparse
 import time
 
 import matplotlib.pyplot as plt
-import numpy as np
+import pandas as pd
 import torch
-from scipy.stats import norm
 
 from sample.center_scan import gini_coefficient, worst_standard_deviation, \
     gini_coefficient_worst
 from sample.center_torch import Metric, PastValidatorUnbounded, PastValidatorWindow, Matrix
+from sample.stake_gen import stake_distribution, read_stake_json
 
 
 def is_correct_float(value: str) -> float:
@@ -39,6 +39,10 @@ def create_parser() -> argparse.Namespace:
                         help="Set the horizon of the simulation")
     parser.add_argument("-r", "--random", type=is_correct_float, default=1,
                         help="The random factor, selected nodes are chosen from the random factor * N closest nodes")
+    parser.add_argument("-s", "--stake", type=argparse.FileType("r"), default=None,
+                        help="The stake distribution file")
+    parser.add_argument("--proba-approx", action="store_false", default=True,
+                        help="Use it to use a monte carlo method instead of approximation")
     args = parser.parse_args()
     return args
 
@@ -80,6 +84,27 @@ def get_list_weight_torch(validators: torch.Tensor, matrix: torch.Tensor) -> tor
     list_poid = matrix[nodes_i, nodes_j]
 
     return list_poid.floor()
+
+
+def classic_stake(stake_validator: torch.Tensor) -> torch.Tensor:
+    nb_val = stake_validator.size(0)
+    return (1 - stake_validator.float() / stake_validator.sum()) / (nb_val - 1)
+
+
+def inverse_stake(stake_validator: torch.Tensor) -> torch.Tensor:
+    # Calculer l'inverse des "stakes" pour les validateurs
+    inverse_stake = 1 / stake_validator.float()
+
+    # Normaliser pour que la somme des ajustements des validateurs soit égale à 1
+    return inverse_stake / inverse_stake.sum()
+
+
+def square_stake(stake_validator: torch.Tensor) -> torch.Tensor:
+    # Appliquer une racine carrée aux "stakes" des validateurs pour adoucir les ajustements
+    sqrt_stake = torch.sqrt(stake_validator.float())
+
+    # Inverser la pondération par rapport à la racine carrée pour que les ajustements soient plus faibles pour des stakes plus élevés
+    return (1 / sqrt_stake) / (1 / sqrt_stake).sum()
 
 
 class ConfigSelection:
@@ -143,8 +168,13 @@ class Frame:
         total_stake_used = stake[self.validators].sum()
         non_used_stake = stake.sum() - total_stake_used
         if self.nb_val != self.nb_node:
-            adjustement = -stake.float() / non_used_stake
-            adjustement[self.validators] = (1 - stake[self.validators].float() / total_stake_used) / (self.nb_val - 1)
+            # adjustement = -stake.float() / non_used_stake
+            adjustement = - (stake.float().sqrt()) / (non_used_stake.sqrt())
+            # adjustement[self.validators] = (1 - stake[self.validators].float() / total_stake_used) / (self.nb_val - 1)
+
+            # Appliquer l'ajustement normalisé aux validateurs
+            adjustement[self.validators] = square_stake(stake[self.validators])
+
         else:
             adjustement = torch.ones(N, dtype=torch.float) / N
         self.past_validator.update(adjustement)
@@ -154,26 +184,6 @@ class Frame:
         return list_weight.mean(), list_weight.median(), list_weight.max()
 
 
-def stake_distribution(nb_node: int) -> np.ndarray:
-    # Définir les paramètres de la distribution gaussienne
-    mean = 75  # Moyenne de la distribution
-    std_dev = 10  # Écart-type
-
-    # Créer les données pour l'abscisse (de 0 à 200) avec des valeurs entières
-    x = np.arange(nb_node)
-    # Calculer la distribution gaussienne pour chaque valeur de x
-    y = norm.pdf(x, mean, std_dev)
-
-    y += norm.pdf(x, mean + 50, std_dev) * 0.5
-
-    y = y /2.5
-
-    # Arrondir les valeurs de y à l'entier supérieur et s'assurer qu'elles sont >= 1
-    y = np.ceil(y * 250).astype(int)
-    y[y < 1] = 1
-    return y
-
-
 def proba_select(stake: torch.Tensor, nb_val: int) -> torch.Tensor:
     N = stake.size(0)
     avg_stake_non_user = (stake.sum() - stake) / (N - 1)
@@ -181,6 +191,21 @@ def proba_select(stake: torch.Tensor, nb_val: int) -> torch.Tensor:
     for i in range(nb_val):
         proba_n_select_nb_val *= 1 - stake / (stake + (N - 1 - i) * avg_stake_non_user)
     return 1 - proba_n_select_nb_val
+
+
+def monte_carlo_selection(stake: torch.Tensor, k: int, num_simulations: int) -> torch.Tensor:
+    N = stake.size(0)
+    selected_count = torch.zeros(N).to(stake.device)  # Compte combien de fois chaque élément est sélectionné
+
+    # Simulation Monte Carlo
+    for _ in range(num_simulations):
+        remaining_stakes = stake.clone()  # Copie des stakes pour ne pas modifier les originaux
+        selected = torch.multinomial(remaining_stakes, k, replacement=False)  # Tirer k éléments sans remise
+        selected_count[selected] += 1
+
+    # Calcul de la probabilité
+    probabilities = selected_count / num_simulations
+    return probabilities
 
 
 if __name__ == '__main__':
@@ -197,7 +222,11 @@ if __name__ == '__main__':
     frame = Frame(nb_node, args.horizon, config)
     metric = Metric(nb_node, 0, True)
 
-    stake = stake_distribution(nb_node)
+    if args.stake is not None:
+        stake = read_stake_json(args.stake)
+    else:
+        stake = stake_distribution(nb_node)
+
     print("Gini stake : ", gini_coefficient(stake))
     stake = torch.Tensor(stake)
 
@@ -217,43 +246,58 @@ if __name__ == '__main__':
     avg_weight_mean, avg_weight_std = metric.get_avg_weight_info()
     time_validator = metric.get_time_validator()
     gini_index = gini_coefficient(time_validator)
-    metrics = {"avg_weight": avg_weight_mean, "nb_gen": nb_gen,
-               "std": avg_weight_std,
-               "std_r": 0 if nb_val == nb_node else avg_weight_std / worst_standard_deviation(nb_val,
-                                                                                              nb_node),
-               "time_val_avg": time_validator.mean() / nb_gen,
-               "time_val_std": time_validator.std() / nb_gen,
-               "temps_calcul": (t2 - t1) / nb_gen,
-               "gini_coef": gini_index,
-               "gini_coef_r": 0 if nb_val == nb_node else gini_index / gini_coefficient_worst(nb_val,
-                                                                                              nb_node), }
-    print(metrics)
 
-    plt.figure()
-    # Première sous-figure (Gini index)
-    plt.subplot(2, 1, 1)  # 2 lignes, 1 colonne, 1ère position
-    plt.plot(metric.gini)
-    plt.title("Gini Index")
+    if args.proba_approx:
+        proba = proba_select(stake, nb_val)
+    else:
+        proba = monte_carlo_selection(stake, nb_val, 10000)
 
-    # Deuxième sous-figure (Average weight)
-    plt.subplot(2, 1, 2)  # 2 lignes, 1 colonne, 2ème position
-    plt.plot(metric.avg_weight)
-    plt.title("Average Weight")
+    if args.output is None:
+        metrics = {"avg_weight": avg_weight_mean, "nb_gen": nb_gen,
+                   "std": avg_weight_std,
+                   "std_r": 0 if nb_val == nb_node else avg_weight_std / worst_standard_deviation(nb_val,
+                                                                                                  nb_node),
+                   "time_val_avg": time_validator.mean() / nb_gen,
+                   "time_val_std": time_validator.std() / nb_gen,
+                   "temps_calcul": (t2 - t1) / nb_gen,
+                   "gini_coef": gini_index,
+                   "gini_coef_r": 0 if nb_val == nb_node else gini_index / gini_coefficient_worst(nb_val,
+                                                                                                  nb_node), }
+        print(metrics)
 
-    # Afficher la figure avec les deux sous-figures
-    plt.tight_layout()  # Pour éviter que les titres et axes se chevauchent
-    plt.show()
+        plt.figure()
+        # Première sous-figure (Gini index)
+        plt.subplot(2, 1, 1)  # 2 lignes, 1 colonne, 1ère position
+        plt.plot(metric.gini)
+        plt.title("Gini Index")
 
-    plt.figure()
-    plt.subplot(3, 1, 1)
-    plt.plot(stake / stake.sum(), label=f'Gaussian Distribution (mean={75}, std_dev={10})', drawstyle='steps-post')
-    plt.title('Stake Distribution')
-    plt.subplot(3, 1, 2)
-    plt.plot(time_validator / nb_gen, label='Time Validator')
-    plt.plot(proba_select(stake, nb_val), label='Time Validator', linestyle='--')
-    plt.title('Time Validator')
-    plt.subplot(3, 1, 3)
-    sum_val = frame.get_sum_validators()
-    plt.plot(sum_val, label='Sum Validators')
-    plt.title(f'Sum Validators : {sum_val.sum()}')
-    plt.show()
+        # Deuxième sous-figure (Average weight)
+        plt.subplot(2, 1, 2)  # 2 lignes, 1 colonne, 2ème position
+        plt.plot(metric.avg_weight)
+        plt.title("Average Weight")
+
+        # Afficher la figure avec les deux sous-figures
+        plt.tight_layout()  # Pour éviter que les titres et axes se chevauchent
+
+        plt.show()
+
+        plt.figure()
+        plt.subplot(3, 1, 1)
+        plt.plot(stake / stake.sum(), label=f'Gaussian Distribution (mean={75}, std_dev={10})', drawstyle='steps-post')
+        plt.title('Stake Distribution')
+        plt.subplot(3, 1, 2)
+        plt.plot(time_validator / nb_gen, label='Time Validator')
+        plt.plot(proba, label='Time Validator', linestyle='--')
+        plt.title('Time Validator')
+        plt.subplot(3, 1, 3)
+        sum_val = frame.get_sum_validators()
+        plt.plot(sum_val, label='Sum Validators')
+        plt.title(f'Sum Validators : {sum_val.sum()}')
+        plt.show()
+    else:
+        df = pd.DataFrame(
+            {"id_node": range(1, nb_node + 1), "time": time_validator / nb_gen,
+             "proba_select": proba, }
+        )
+        df.set_index("id_node", inplace=True)
+        df.to_csv(args.output, index=True, sep="\t")

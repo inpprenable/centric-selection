@@ -15,12 +15,13 @@ def is_directory(path):
 
 def create_parser() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Solve a parcours with Genetic Algorithme')
-    parser.add_argument("input", type=is_directory, help="The adjacent matrix file")
+    parser.add_argument("-i", "--input", type=is_directory, help="The adjacent matrix file")
     parser.add_argument("--prefix", type=str, default="results_", help="The prefix of the csv files to read")
     parser.add_argument("-o", "--output", type=str,
                         help="the file to store the results", default=None)
     parser.add_argument("-e", "--extend", action="store_true", default=False, help="Add other data (std)")
     parser.add_argument("--csv", action="store_true", default=False, help="Export data in a csv format")
+    parser.add_argument("--files", type=str, nargs='+', help="The files to read")
     args = parser.parse_args()
     return args
 
@@ -30,14 +31,17 @@ if __name__ == '__main__':
 
     # Initialisation de la figure pour le plot
 
-    file_list = glob.glob(f'{args.input}/{args.prefix}*.csv')
+    if args.files is not None:
+        file_list = args.files
+    else:
+        file_list = glob.glob(f'{args.input}/{args.prefix}*.csv')
 
-    file_list = sorted(file_list)
-    file_label = [
-        (file, float(file.split('/')[-1].split('.csv')[0].split(args.prefix)[1])) for file in file_list
-    ]
-    sorted_file_label = sorted(file_label, key=lambda x: x[1])
-    file_list = [file[0] for file in sorted_file_label]
+        file_list = sorted(file_list)
+        file_label = [
+            (file, float(file.split('/')[-1].split('.csv')[0].split(args.prefix)[1])) for file in file_list
+        ]
+        sorted_file_label = sorted(file_label, key=lambda x: x[1])
+        file_list = [file[0] for file in sorted_file_label]
 
     if len(file_list) == 0:
         print(f"No file found with prefix {args.prefix}")
@@ -53,7 +57,10 @@ if __name__ == '__main__':
             df = pd.read_csv(file)
 
             # Extraire le nom du fichier sans le chemin ni l'extension
-            label = file.split('/')[-1].split('.csv')[0].split(args.prefix)[1]
+            if args.files is not None:
+                label = file.split('/')[-1].split('.csv')[0]
+            else:
+                label = file.split('/')[-1].split('.csv')[0].split(args.prefix)[1]
 
             if args.extend:
                 # Renommer la colonne avg_weight avec le nom du fichier
@@ -121,7 +128,10 @@ if __name__ == '__main__':
             df = pd.read_csv(file)
 
             # Extraire le nom du fichier sans le chemin ni l'extension
-            label = file.split('/')[-1].split('.csv')[0].split(args.prefix)[1]
+            if args.files is not None:
+                label = file.split('/')[-1].split('.csv')[0]
+            else:
+                label = file.split('/')[-1].split('.csv')[0].split(args.prefix)[1]
 
             # Renommer la colonne avg_weight avec le nom du fichier
             df = df[['nb_val', 'gini_coef_r']].rename(
