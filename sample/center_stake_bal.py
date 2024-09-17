@@ -46,6 +46,8 @@ def create_parser() -> argparse.Namespace:
                         help="The random factor, selected nodes are chosen from the random factor * N closest nodes")
     parser.add_argument("-s", "--stake", type=argparse.FileType("r"), default=None,
                         help="The stake distribution file")
+    parser.add_argument("--pow", default=1, type=float,
+                        help="Store the power of the stake")
     args = parser.parse_args()
     return args
 
@@ -82,7 +84,7 @@ if __name__ == '__main__':
                             "time_val_avg": 0, "time_val_std": 0, "temps_calcul": 0,
                             "gini_coef": 0, "gini_coef_r": 0}
         if nb_gen > dico[nb_val]["nb_gen"]:
-            config = ConfigSelection(args.mu, args.random)
+            config = ConfigSelection(args.mu, args.random, args.pow)
             frame = Frame(nb_node, args.horizon, config)
             metric = Metric(nb_node, 0, False)
 

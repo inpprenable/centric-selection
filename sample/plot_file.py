@@ -38,8 +38,13 @@ if __name__ == '__main__':
 
         file_list = sorted(file_list)
         file_label = [
-            (file, float(file.split('/')[-1].split('.csv')[0].split(args.prefix)[1])) for file in file_list
+            (file, file.split('/')[-1].split('.csv')[0].split(args.prefix)[1]) for file in file_list
         ]
+        try:
+            file_label = [(file, float(label)) for file, label in file_label]
+        except ValueError:
+            True
+
         sorted_file_label = sorted(file_label, key=lambda x: x[1])
         file_list = [file[0] for file in sorted_file_label]
 

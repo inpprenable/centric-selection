@@ -41,8 +41,10 @@ def create_parser() -> argparse.Namespace:
                         help="The random factor, selected nodes are chosen from the random factor * N closest nodes")
     parser.add_argument("-s", "--stake", type=argparse.FileType("r"), default=None,
                         help="The stake distribution file")
-    parser.add_argument("--proba-approx", action="store_false", default=True,
+    parser.add_argument("--proba-approx", action="store_true", default=False,
                         help="Use it to use a monte carlo method instead of approximation")
+    parser.add_argument("--pow", default=1, type=float,
+                        help="Store the power of the stake")
     args = parser.parse_args()
     return args
 
@@ -86,31 +88,11 @@ def get_list_weight_torch(validators: torch.Tensor, matrix: torch.Tensor) -> tor
     return list_poid.floor()
 
 
-def classic_stake(stake_validator: torch.Tensor) -> torch.Tensor:
-    nb_val = stake_validator.size(0)
-    return (1 - stake_validator.float() / stake_validator.sum()) / (nb_val - 1)
-
-
-def inverse_stake(stake_validator: torch.Tensor) -> torch.Tensor:
-    # Calculer l'inverse des "stakes" pour les validateurs
-    inverse_stake = 1 / stake_validator.float()
-
-    # Normaliser pour que la somme des ajustements des validateurs soit égale à 1
-    return inverse_stake / inverse_stake.sum()
-
-
-def square_stake(stake_validator: torch.Tensor) -> torch.Tensor:
-    # Appliquer une racine carrée aux "stakes" des validateurs pour adoucir les ajustements
-    sqrt_stake = torch.sqrt(stake_validator.float())
-
-    # Inverser la pondération par rapport à la racine carrée pour que les ajustements soient plus faibles pour des stakes plus élevés
-    return (1 / sqrt_stake) / (1 / sqrt_stake).sum()
-
-
 class ConfigSelection:
-    def __init__(self, coef_eloignement: float, random_factor: float == 1):
+    def __init__(self, coef_eloignement: float, random_factor: float == 1, pow_factor: float = 1):
         self.coef_eloignement = coef_eloignement
         self.random_factor = random_factor
+        self.pow_factor = pow_factor
 
     def func_eloignement(self, t: torch.Tensor) -> torch.Tensor:
         return torch.exp(t / self.coef_eloignement)
@@ -165,15 +147,19 @@ class Frame:
 
     def update_past(self, stake: torch.Tensor):
         N = self.nb_node
-        total_stake_used = stake[self.validators].sum()
-        non_used_stake = stake.sum() - total_stake_used
-        if self.nb_val != self.nb_node:
-            # adjustement = -stake.float() / non_used_stake
-            adjustement = - (stake.float().sqrt()) / (non_used_stake.sqrt())
-            # adjustement[self.validators] = (1 - stake[self.validators].float() / total_stake_used) / (self.nb_val - 1)
+        validator_bool = torch.zeros(N, dtype=torch.bool)
+        validator_bool[self.validators] = True
 
-            # Appliquer l'ajustement normalisé aux validateurs
-            adjustement[self.validators] = square_stake(stake[self.validators])
+        power = 0.5 + (self.nb_val / N) ** 2 * 1.5
+        pow_state = stake.float().pow(power)
+
+        adjustement = torch.zeros(N, dtype=torch.float)
+        if self.nb_val != self.nb_node:
+            nv_stake = pow_state[~validator_bool]
+            adjustement[~validator_bool] = -nv_stake / nv_stake.sum()
+
+            v_stake = 1 / (pow_state[validator_bool])
+            adjustement[validator_bool] = v_stake / v_stake.sum()
 
         else:
             adjustement = torch.ones(N, dtype=torch.float) / N
@@ -218,7 +204,7 @@ if __name__ == '__main__':
 
     nb_val = args.nb
 
-    config = ConfigSelection(args.mu, args.random)
+    config = ConfigSelection(args.mu, args.random, args.pow)
     frame = Frame(nb_node, args.horizon, config)
     metric = Metric(nb_node, 0, True)
 
