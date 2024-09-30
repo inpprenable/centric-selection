@@ -7,7 +7,7 @@ import pandas as pd
 import torch
 
 from center_scan import gini_coefficient, gini_coefficient_worst
-from sample.monte_carlo_approx import monte_carlo_selection
+from sample.center_stake import monte_carlo_selection
 from sample.stake_gen import read_stake_json
 
 
@@ -41,9 +41,7 @@ if __name__ == '__main__':
         predicted_gini_r = np.zeros(nb_node - 3)
         gini_w = np.zeros(nb_node - 3)
         for i in index:
-            # proba = proba_select(stake, i + 4)
             proba = monte_carlo_selection(stake, i, args.simulations)
-            # avg_time_val = proba * args.gen
             predicted_gini = gini_coefficient(proba.cpu().numpy())
 
             gini_w = gini_coefficient_worst(i, nb_node)
@@ -55,7 +53,6 @@ if __name__ == '__main__':
         else:
             df = pd.merge(df, df_temp, on="nb_val", how="outer")
         plt.plot(index, predicted_gini_r, label=label)
-        # df = pd.concat([df, df_temp], axis=1)
     df.set_index("nb_val", inplace=True)
     t2 = time.time()
     print("Time : ", t2 - t1)

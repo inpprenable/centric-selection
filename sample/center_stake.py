@@ -41,10 +41,6 @@ def create_parser() -> argparse.Namespace:
                         help="The random factor, selected nodes are chosen from the random factor * N closest nodes")
     parser.add_argument("-s", "--stake", type=argparse.FileType("r"), default=None,
                         help="The stake distribution file")
-    parser.add_argument("--proba-approx", action="store_true", default=False,
-                        help="Use it to use a monte carlo method instead of approximation")
-    parser.add_argument("--pow", default=1, type=float,
-                        help="Store the power of the stake")
     args = parser.parse_args()
     return args
 
@@ -89,10 +85,9 @@ def get_list_weight_torch(validators: torch.Tensor, matrix: torch.Tensor) -> tor
 
 
 class ConfigSelection:
-    def __init__(self, coef_eloignement: float, random_factor: float == 1, pow_factor: float = 1):
+    def __init__(self, coef_eloignement: float, random_factor: float == 1):
         self.coef_eloignement = coef_eloignement
         self.random_factor = random_factor
-        self.pow_factor = pow_factor
 
     def func_eloignement(self, t: torch.Tensor) -> torch.Tensor:
         return torch.exp(t / self.coef_eloignement)
@@ -170,15 +165,6 @@ class Frame:
         return list_weight.mean(), list_weight.median(), list_weight.max()
 
 
-def proba_select(stake: torch.Tensor, nb_val: int) -> torch.Tensor:
-    N = stake.size(0)
-    avg_stake_non_user = (stake.sum() - stake) / (N - 1)
-    proba_n_select_nb_val = torch.ones(N)
-    for i in range(nb_val):
-        proba_n_select_nb_val *= 1 - stake / (stake + (N - 1 - i) * avg_stake_non_user)
-    return 1 - proba_n_select_nb_val
-
-
 def monte_carlo_selection(stake: torch.Tensor, k: int, num_simulations: int) -> torch.Tensor:
     N = stake.size(0)
     selected_count = torch.zeros(N).to(stake.device)  # Compte combien de fois chaque élément est sélectionné
@@ -204,7 +190,7 @@ if __name__ == '__main__':
 
     nb_val = args.nb
 
-    config = ConfigSelection(args.mu, args.random, args.pow)
+    config = ConfigSelection(args.mu, args.random)
     frame = Frame(nb_node, args.horizon, config)
     metric = Metric(nb_node, 0, True)
 
@@ -233,10 +219,7 @@ if __name__ == '__main__':
     time_validator = metric.get_time_validator()
     gini_index = gini_coefficient(time_validator)
 
-    if args.proba_approx:
-        proba = proba_select(stake, nb_val)
-    else:
-        proba = monte_carlo_selection(stake, nb_val, 10000)
+    proba = monte_carlo_selection(stake, nb_val, 10000)
 
     if args.output is None:
         metrics = {"avg_weight": avg_weight_mean, "nb_gen": nb_gen,

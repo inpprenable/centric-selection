@@ -27,7 +27,7 @@ python sample/random_scan.py my_input_map.txt --gen 10 -o random_results.txt
 
 ## Selection using distance minimising Genetic Algorithms
 Use `GA_scan.py` to obtain a selection of validators minimising (or maximising distance with the option `--worst`) with Genetics Algorithms. This selection is closed to the best (and the worst) selection. 
-Population and number of generations of genetic algorithms are controlled with options `--pop` and `--gen`
+Population and number of generations of genetic algorithms are controlled with options `--pop` and `--gen`. Note that the computation are done in parallel.
 
 Example:
 ```bash
@@ -59,3 +59,28 @@ Example:
 ```bash
 python sample/center_graphical.py --map my_input_map.txt --gen 100 --print
 ```
+
+## Tensor Optimisation for centric selection
+
+Use the programme `center_torch.py` to optimise the selection of validators using a tensor approach. The number of validators is set with `--val` and the number of iterations with `--gen`. The number of iterations before measurement is set with `--ellipse`. The output is stored in a file with the option `-o`. The use is identical to the program `center_scan`.
+
+The random argument "--random" is used to introduce a random selection of validators. It takes $k$ validators randomly in a set of size $k*r$.
+
+Example: 
+```bash
+python sample/center_torch.py example/list_node_example_conf_paper.json --gen 1000 -o result.csv -r 1.5
+```
+
+## Stake generation
+Use the file `stake_gen.py` to generate a stake distribution. You have to configure the file to design the distribution. The output is stored in a file with the option `-o`.
+
+## Centric Selection with stake
+Use the programme `center_stake.py` to optimise the selection of validators using a tensor approach. The number of validators is set with `--val` and the number of iterations with `--gen`. The output is stored in a file with the option `-o`. A stake distribution can be add in the selection with the option `--stake`. 
+
+Example: 
+```bash
+python sample/center_stake.py example/list_node_example_conf_paper.json --gen 2000 --horizon 0 -s stake_exp/low_stake.json  --nb 30
+```
+
+## Centric Selection with stake, multiple iterations
+Use the file `center_stake_bal.py` to optimise the selection of validators using a tensor approach. The number of validators is set with `--val` and the number of iterations with `--gen`. The output is stored in a file with the option `-o`. A stake distribution can be add in the selection with the option `--stake`.
