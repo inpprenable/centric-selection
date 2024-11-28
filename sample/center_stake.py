@@ -41,11 +41,15 @@ def create_parser() -> argparse.Namespace:
                         help="The random factor, selected nodes are chosen from the random factor * N closest nodes")
     parser.add_argument("-s", "--stake", type=argparse.FileType("r"), default=None,
                         help="The stake distribution file")
+    parser.add_argument("--MC", help="Use the Montecarlo method to determine the proba", action="store_true",
+                        default=False)
     args = parser.parse_args()
     return args
 
 
 def select_center(list_validators: torch.Tensor, matrix: torch.Tensor) -> int:
+    # return 0
+    # return np.random.randint(200)
     N = matrix.size(0)
     # list_average_delay = [sum(delays) for delays in matrix]
     list_average_delay = torch.sum(matrix[:, list_validators], dim=1)
@@ -110,7 +114,7 @@ class ConfigSelection:
 
 
 class Frame:
-    def __init__(self, nb_node: int, horizon: int, config: ConfigSelection):
+    def __init__(self, nb_node: int, horizon: int, config: ConfigSelection, proba: torch.Tensor = None):
         self.timestamp = 0
         self.nb_node = nb_node
         self.nb_val = nb_node
@@ -121,17 +125,37 @@ class Frame:
         else:
             self.past_validator = PastValidatorWindow(horizon, nb_node)
         self.validators = torch.arange(nb_node)
+        self.proba = proba
 
     def get_sum_validators(self) -> torch.Tensor:
         return self.past_validator.get_sum_validators()
 
     def select_new_val(self, center: int, nb_val: int, matrix: torch.Tensor) -> torch.Tensor:
+        # fc_el = self.config.func_eloignement(self.get_sum_validators())
+        # fc_el[center] = 0
         delays = matrix[center, :] * self.config.func_eloignement(self.get_sum_validators())
+        # delays_2 = delays.clone()
+        # delays_2 = torch.cat([delays_2[0:center], delays_2[center + 1:]])
+        # print(self.timestamp, "\t f ->\t", fc_el.min(), fc_el.max(), "\t", delays_2.min(), delays_2.max())
+        # print(delays_2.sort())
         # Obtenir les indices triés en fonction des délais
         _, sorted_indices = torch.sort(delays)
         # # Sélectionner les 'nb_val' premiers indices (les plus proches)
         # return sorted_indices[:nb_val]
         return self.config.get_random_factor(sorted_indices, nb_val)
+
+    def select_new_val_rd(self, center: int, nb_val: int, matrix: torch.Tensor) -> torch.Tensor:
+        delays = matrix[center, :] * self.config.func_eloignement(self.get_sum_validators())
+
+        inverse_delays = 1.0 / delays
+        inverse_delays[center] = 0
+
+        weights = inverse_delays / inverse_delays.sum()
+        weights = weights.pow(1)
+        selected_nodes = torch.multinomial(weights, num_samples=nb_val - 1, replacement=False)
+        selected_nodes = torch.cat((selected_nodes, torch.Tensor([center]).int()))
+
+        return selected_nodes
 
     def update(self, matrix: torch.Tensor, nb_val: int, stake: torch.Tensor):
         self.timestamp += 1
@@ -145,16 +169,21 @@ class Frame:
         validator_bool = torch.zeros(N, dtype=torch.bool)
         validator_bool[self.validators] = True
 
-        power = 0.5 + (self.nb_val / N) ** 2 * 1.5
-        pow_state = stake.float().pow(power)
+        sum_stake = stake.float().sum()
 
         adjustement = torch.zeros(N, dtype=torch.float)
         if self.nb_val != self.nb_node:
-            nv_stake = pow_state[~validator_bool]
-            adjustement[~validator_bool] = -nv_stake / nv_stake.sum()
+            full_stakes = stake.float()
+            nv_stak_sum = full_stakes[~validator_bool].sum()
 
-            v_stake = 1 / (pow_state[validator_bool])
-            adjustement[validator_bool] = v_stake / v_stake.sum()
+            used_proba = proba_select(stake, self.nb_val) if self.proba is None else self.proba
+
+            adjustement[~validator_bool] = -full_stakes[~validator_bool] / nv_stak_sum
+
+            v_stake = (1 - 1 / used_proba[validator_bool])
+            adjustement[validator_bool] = -v_stake * full_stakes[validator_bool] / nv_stak_sum
+
+            # adjustement = adjustement - adjustement.mean()
 
         else:
             adjustement = torch.ones(N, dtype=torch.float) / N
@@ -163,6 +192,26 @@ class Frame:
     def calcul_metric(self, matrix: torch.Tensor) -> tuple:
         list_weight = get_list_weight_torch(self.validators, matrix)
         return list_weight.mean(), list_weight.median(), list_weight.max()
+
+
+def proba_select(stake: torch.Tensor, nb_val: int) -> torch.Tensor:
+    N = stake.size(0)
+    avg_stake_non_user = (stake.sum() - stake) / (N - 1)
+
+    # Créer une séquence 0, 1, ..., nb_val-1
+    list_arrange = torch.arange(nb_val, device=stake.device)
+
+    # Ajouter une dimension à list_arrange pour permettre la diffusion
+    scaling_factors = (N - 1 - list_arrange).unsqueeze(1)
+
+    # Calcul des probabilités non sélectionnées pour chaque itération
+    list_sub_proba = 1 - stake / (stake + scaling_factors * avg_stake_non_user)
+
+    # Calcul du produit pour obtenir la probabilité totale de ne pas être sélectionné
+    proba_n_select_nb_val = list_sub_proba.prod(dim=0)
+
+    # Retourner la probabilité d'être sélectionné
+    return 1 - proba_n_select_nb_val
 
 
 def monte_carlo_selection(stake: torch.Tensor, k: int, num_simulations: int) -> torch.Tensor:
@@ -191,8 +240,6 @@ if __name__ == '__main__':
     nb_val = args.nb
 
     config = ConfigSelection(args.mu, args.random)
-    frame = Frame(nb_node, args.horizon, config)
-    metric = Metric(nb_node, 0, True)
 
     if args.stake is not None:
         stake = read_stake_json(args.stake)
@@ -206,6 +253,16 @@ if __name__ == '__main__':
     # stake = neutral_stake
     torch.no_grad()
 
+    proba = monte_carlo_selection(stake, nb_val, 100000)
+
+    if args.MC:
+        used_proba = monte_carlo_selection(stake, nb_val, 100000)
+    else:
+        used_proba = None
+
+    frame = Frame(nb_node, args.horizon, config, used_proba)
+    metric = Metric(nb_node, 0, True)
+
     for i in range(elipse):
         # liste_node_matrix.update()
         frame.update(liste_node_matrix.current_matrix, nb_val, neutral_stake)
@@ -218,8 +275,6 @@ if __name__ == '__main__':
     avg_weight_mean, avg_weight_std = metric.get_avg_weight_info()
     time_validator = metric.get_time_validator()
     gini_index = gini_coefficient(time_validator)
-
-    proba = monte_carlo_selection(stake, nb_val, 10000)
 
     if args.output is None:
         metrics = {"avg_weight": avg_weight_mean, "nb_gen": nb_gen,

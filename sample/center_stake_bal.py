@@ -7,7 +7,7 @@ import torch
 from sample.center_scan import gini_coefficient, worst_standard_deviation, \
     gini_coefficient_worst
 from sample.center_scan import write_csv, read_csv
-from sample.center_stake import ConfigSelection, Frame, stake_distribution
+from sample.center_stake import ConfigSelection, Frame, stake_distribution, monte_carlo_selection
 from sample.center_torch import Matrix, Metric
 from sample.stake_gen import read_stake_json
 
@@ -46,6 +46,8 @@ def create_parser() -> argparse.Namespace:
                         help="The random factor, selected nodes are chosen from the random factor * N closest nodes")
     parser.add_argument("-s", "--stake", type=argparse.FileType("r"), default=None,
                         help="The stake distribution file")
+    parser.add_argument("--MC", help="Use the Montecarlo method to determine the proba", action="store_true",
+                        default=False)
     args = parser.parse_args()
     return args
 
@@ -82,8 +84,13 @@ if __name__ == '__main__':
                             "time_val_avg": 0, "time_val_std": 0, "temps_calcul": 0,
                             "gini_coef": 0, "gini_coef_r": 0}
         if nb_gen > dico[nb_val]["nb_gen"]:
+            if args.MC:
+                proba = monte_carlo_selection(stake, nb_val, 100000)
+            else:
+                proba = None
+
             config = ConfigSelection(args.mu, args.random)
-            frame = Frame(nb_node, args.horizon, config)
+            frame = Frame(nb_node, args.horizon, config , proba)
             metric = Metric(nb_node, 0, False)
 
             for i in range(elipse):

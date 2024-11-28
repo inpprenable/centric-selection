@@ -33,6 +33,8 @@ def create_parser() -> argparse.Namespace:
                         help="Set the population size for the Genetic Algorithm")
     parser.add_argument("--gen", type=int, default=100,
                         help="Set the number of generation for the Genetic Algorithm")
+    parser.add_argument("--step", type=int, default=1,
+                        help="Set the step in the loop of number of validator for the research")
     args = parser.parse_args()
     return args
 
@@ -126,7 +128,7 @@ if __name__ == '__main__':
 
     with mp.Pool(mp.cpu_count()) as pool:
         results = pool.starmap(process_minimization,
-                               [(nb_val, arg_GA, matrix) for nb_val in range(min_val, max_val + 1)])
+                               [(nb_val, arg_GA, matrix) for nb_val in range(min_val, max_val + 1, args.step)])
 
     for nb_val, avg_weight in results:
         if nb_val not in dico:
