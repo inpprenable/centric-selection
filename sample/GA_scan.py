@@ -7,6 +7,7 @@ import multiprocessing as mp
 import os.path
 
 import numpy as np
+import pandas as pd
 from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.operators.crossover.pntx import TwoPointCrossover
 from pymoo.operators.mutation.bitflip import BitflipMutation
@@ -108,17 +109,19 @@ def process_minimization(nb_val, arg_GA, matrix):
 
 if __name__ == '__main__':
     args = create_parser()
-    data = json.loads(args.input.read())
-    list_node, matrix = None, None
-    if type(data) == list:
-        matrix = np.array(data)
-    elif type(data) == dict:
+    nb_node, matrix = None, None
+    if args.input.name.endswith(".csv"):
+        data = pd.read_csv(args.input, header=None)
+        matrix = data.values
+        nb_node = data.shape[0]
+    elif args.input.name.endswith(".json"):
+        data = json.loads(args.input.read())
         data = {int(k): v for k, v in data.items()}
         list_node = data
         matrix = calcul_matrice_adjacente(data)
+        nb_node = len(list_node)
     args.input.close()
 
-    nb_node = len(list_node)
     min_val = args.min
     max_val = min(args.max, nb_node)
 

@@ -39,8 +39,12 @@ if __name__ == '__main__':
 
     # at peak, n = 4, n2 = 4 +27
     # plateau, n2 = n + 19 -> n =  12
-    n, N, alpha = 12, 200, 1.5
-    n2 = n + 19
+
+    # theory, at n = 42, n2 = 42 + 20, alpha = 0
+    # theory, at n = 42, n2 = 42 + 13, alpha = 1.5
+    # theory, at n = 42, n2 = 42 + 10, alpha = 2
+    n, N, alpha = 42, 200, 1.5
+    n2 = n + 13
 
     x = []
     y_rd, y_alpha = [], []

@@ -4,9 +4,11 @@ import csv
 import json
 import math
 import os
-import numpy as np
 
-from fonctionGraph import calcul_matrice_adjacente, get_weight_graph, list_int_to_list_bool
+import numpy as np
+import torch
+
+from fonctionGraph import calcul_matrice_adjacente
 
 
 def create_parser() -> argparse.Namespace:
@@ -50,12 +52,22 @@ def write_csv(path: str, dico: dict) -> None:
 def get_random_weight(nb_val: int, matrix: np.ndarray, gen: int) -> np.ndarray:
     assert gen > 0
     assert 3 < nb_val <= len(matrix)
-    history = np.zeros(gen, dtype=int)
-    list_nodes = np.arange(len(matrix))
-    for i in range(gen):
-        validators = np.random.choice(list_nodes, size=nb_val, replace=False)
-        history[i] = get_weight_graph(list_int_to_list_bool(len(matrix), validators), matrix)
-    return history
+
+    matrix_torch = torch.tensor(matrix, dtype=torch.int32)
+
+    # Probabilités uniformes pour le choix des validateurs
+    probabilities = torch.ones((gen, len(matrix)))  # Matrice de proba pour batch sampling
+
+    # Échantillonnage des validateurs pour toutes les générations en une seule passe
+    indices = torch.multinomial(probabilities, nb_val, replacement=False)
+
+    # Extraction des sous-matrices
+    sub_matrices = matrix_torch[indices.unsqueeze(2), indices.unsqueeze(1)]
+
+    # Calcul des poids avec la partie triangulaire supérieure
+    history = torch.triu(sub_matrices, diagonal=1).sum(dim=(1, 2))
+
+    return history.numpy()
 
 
 nb_link_f = lambda n: int(n * (n - 1) / 2)

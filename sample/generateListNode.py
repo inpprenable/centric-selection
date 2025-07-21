@@ -3,7 +3,9 @@ import argparse
 import io
 import json
 from enum import Enum
+
 import numpy as np
+import pandas as pd
 
 from fonctionGraph import generate_node, calcul_matrice_adjacente
 
@@ -22,6 +24,8 @@ def create_parser() -> argparse.Namespace:
                         help="Set the width")
     parser.add_argument("-n", "--nbnode", type=int, default=200,
                         help="Set the number of nodes")
+    parser.add_argument("--norm", action="store_true", default=False,
+                        help="Normalize the adjacency matrix according to the GCN method")
     args = parser.parse_args()
     return args
 
@@ -35,15 +39,18 @@ class OutputType(Enum):
 
 
 def write_matrix_file(file: io.TextIOWrapper, matrix: np.ndarray, sep=","):
-    assert len(matrix.shape) == 2
-    na, nb = matrix.shape
-    assert na == nb
-    for i in range(na):
-        string_builder = ""
-        for j in range(na - 1):
-            string_builder += str(matrix[i, j]) + sep
-        string_builder += str(matrix[i, -1]) + "\n"
-        file.write(string_builder)
+    df = pd.DataFrame(matrix)
+    df.to_csv(file, index=False, header=False, sep=sep)
+
+
+def normalize_max(w:np.ndarray) -> np.ndarray:
+    # ignorer la diagonale forcée à 0
+    w_no_diag = w.copy()
+    np.fill_diagonal(w_no_diag, np.nan)
+    w_max = np.nanmax(w_no_diag)
+    w_norm = w / w_max
+    np.fill_diagonal(w_norm, 0.0)
+    return w_norm
 
 
 if __name__ == '__main__':
@@ -62,6 +69,8 @@ if __name__ == '__main__':
             args.map.close()
         list_node = {int(k): v for k, v in list_node.items()}
         matrix = calcul_matrice_adjacente(list_node)
+        if args.norm:
+            matrix = normalize_max(matrix)
         if args.output.name.endswith(".json"):
             matrix = matrix.tolist()
             args.output.write(json.dumps(matrix))
