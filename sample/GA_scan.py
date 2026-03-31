@@ -142,10 +142,11 @@ if __name__ == '__main__':
     exemple = create_random_solution(nb_node, nb_node//2)
     get_weight_graph(exemple, matrix)
 
-
+    t0 = time.time()
     with mp.Pool(mp.cpu_count()) as pool:
         results = pool.starmap(process_minimization,
                                [(nb_val, arg_GA, matrix) for nb_val in range(min_val, max_val + 1, args.step)])
+    t1 = time.time()
 
 
     for nb_val, avg_weight in results:
@@ -160,3 +161,4 @@ if __name__ == '__main__':
             write_csv(args.output, dico)
         else:
             print(nb_val, dico[nb_val])
+    print(f"Total time: {t1 - t0:.2f} seconds")
