@@ -2,6 +2,7 @@ from typing import Type
 
 import networkx as nx
 import numpy as np
+from numba import njit
 
 
 def additive_weight_from_node(graph: list, i: int, matrix_weight: np.ndarray) -> float:
@@ -43,13 +44,10 @@ def calcul_distance_two_nodes(nodeA: tuple, nodeB: tuple) -> float:
 
 
 def calcul_matrice_adjacente(dict_node: dict, dtype: Type = float) -> np.ndarray:
-    nb_node = len(dict_node)
-    matrix = np.zeros((nb_node, nb_node), dtype=dtype)
-    for i in range(nb_node):
-        for j in range(i + 1, nb_node):
-            matrix[i, j] = dtype(calcul_distance_two_nodes(dict_node[i], dict_node[j]))
-            matrix[j, i] = matrix[i, j]
-    return matrix
+    nodes = np.asarray(list(dict_node.values()), dtype=dtype)  # (N, d)
+    diff = nodes[:, None, :] - nodes[None, :, :]  # (N, N, d)
+    dist = np.linalg.norm(diff, axis=-1)  # (N, N)
+    return dist.astype(dtype)
 
 
 def get_list_weight(validators: list, matrix: np.ndarray) -> np.ndarray:
@@ -73,15 +71,11 @@ def generate_graph_from_pos(list_node: dict) -> nx.Graph:
     return G
 
 
-def get_weight_graph(list_node: list[bool], matrix: np.ndarray) -> int:
-    weight = 0
-    nb_node = len(list_node)
-    for i in range(nb_node):
-        if list_node[i]:
-            for j in range(i + 1, nb_node):
-                if list_node[j]:
-                    weight += matrix[i, j]
-    return weight
+@njit
+def get_weight_graph(list_node: np.ndarray, matrix: np.ndarray) -> float:
+    mask = list_node.astype(matrix.dtype)
+    total = mask @ matrix @ mask
+    return total.item() / 2
 
 
 def bool_list_to_int(x) -> list:

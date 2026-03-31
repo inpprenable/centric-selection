@@ -7,7 +7,7 @@ from enum import Enum
 import numpy as np
 import pandas as pd
 
-from fonctionGraph import generate_node, calcul_matrice_adjacente
+from sample.fonctionGraph import generate_node, calcul_matrice_adjacente
 
 
 def create_parser() -> argparse.Namespace:

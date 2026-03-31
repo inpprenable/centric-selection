@@ -15,7 +15,7 @@ from pymoo.operators.sampling.rnd import BinaryRandomSampling
 from pymoo.optimize import minimize
 from pymoo.problems.functional import FunctionalProblem
 
-from fonctionGraph import calcul_matrice_adjacente, get_weight_graph
+from sample.fonctionGraph import get_weight_graph, calcul_matrice_adjacente
 
 
 def create_parser() -> argparse.Namespace:
@@ -40,7 +40,7 @@ def create_parser() -> argparse.Namespace:
     return args
 
 
-def read_csv(path: str) -> dict:
+def read_csv(path: str) -> dict[int, dict[str, float]]:
     dico = {}
     if path is not None and os.path.exists(path) and os.path.getsize(path) > 0:
         with open(path, "r") as file:
@@ -75,7 +75,7 @@ class MyFunctionalProblem(FunctionalProblem):
         self.matrix = matrix
         self.nb_val = nb_val
 
-        def func_obj(x: list[bool]):
+        def func_obj(x:np.ndarray):
             return (1 if min else -1) * get_weight_graph(x, self.matrix)
 
         satisfy_validateur = lambda x: abs(np.sum(x) - self.nb_val)
@@ -84,6 +84,11 @@ class MyFunctionalProblem(FunctionalProblem):
 
 nb_link = lambda n: int(n * (n - 1) / 2)
 
+def create_random_solution(nb_node: int, nb_val: int) -> np.ndarray:
+    solution = np.zeros(nb_node, dtype=bool)
+    selected_indices = np.random.choice(nb_node, nb_val, replace=False)
+    solution[selected_indices] = True
+    return solution
 
 def process_minimization(nb_val, arg_GA, matrix):
     """
@@ -100,10 +105,9 @@ def process_minimization(nb_val, arg_GA, matrix):
                    mutation=BitflipMutation(),
                    eliminate_duplicates=True)
     res = minimize(problem, algorithm, ("n_gen", arg_GA[2]), verbose=arg_GA[3] > 0,
-                   save_history=True)
+                   save_history=False)
     weigh_graph = problem.evaluate(res.X)[0].astype(float)[0]
     avg_weight = weigh_graph / nb_link(nb_val)
-
     return nb_val, avg_weight
 
 
@@ -120,6 +124,8 @@ if __name__ == '__main__':
         list_node = data
         matrix = calcul_matrice_adjacente(data)
         nb_node = len(list_node)
+    else:
+        raise Exception("Input file format not supported")
     args.input.close()
 
     min_val = args.min
@@ -129,9 +135,17 @@ if __name__ == '__main__':
 
     arg_GA = [args.worst, args.pop, args.gen, args.verbose]
 
+
+    # Force numba compilation
+    nb_node = len(matrix)
+    exemple = create_random_solution(nb_node, nb_node//2)
+    get_weight_graph(exemple, matrix)
+
+
     with mp.Pool(mp.cpu_count()) as pool:
         results = pool.starmap(process_minimization,
                                [(nb_val, arg_GA, matrix) for nb_val in range(min_val, max_val + 1, args.step)])
+
 
     for nb_val, avg_weight in results:
         if nb_val not in dico:

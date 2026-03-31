@@ -2,6 +2,7 @@ import argparse
 import os
 
 import pandas as pd
+from matplotlib import pyplot as plt
 
 
 def is_directory(path):
@@ -9,6 +10,13 @@ def is_directory(path):
         return path
     else:
         raise argparse.ArgumentTypeError(f"'{path}' is not a valid directory")
+
+
+def moyenne_interquartile(group):
+    q1 = group.quantile(0.25)
+    q3 = group.quantile(0.75)
+    subset = group[(group >= q1) & (group <= q3)]
+    return subset.mean()
 
 
 def create_parser() -> argparse.Namespace:
@@ -46,4 +54,25 @@ if __name__ == '__main__':
     if args.output is not None:
         result.to_csv(args.output, index=False, sep=",")
     else:
+
+
+        df_grouped_min = df.groupby('nb_val')['min'].apply(moyenne_interquartile).reset_index()
+        df_grouped_max = df.groupby('nb_val')['max'].apply(moyenne_interquartile).reset_index()
+
+        plt.figure(figsize=(10, 6))
+        plt.scatter(df['nb_val'], df['min'], alpha=0.6, s=10)
+        plt.scatter(df['nb_val'], df['max'], alpha=0.6, s=10)
+
+        plt.scatter(result['nb_val'], result['min_mean'] if args.extend else result['min'], color='red', label='Mean Min', s=50)
+        plt.scatter(df_grouped_min['nb_val'], df_grouped_min['min'], color='green', label='Interquartile Mean', s=50)
+
+        plt.scatter(result['nb_val'], result['max_mean'] if args.extend else result['max'], color='red',
+                    label='Mean Max', s=50)
+        plt.scatter(df_grouped_max['nb_val'], df_grouped_max['max'], color='green', label='Interquartile Mean', s=50)
+
+        plt.xlabel('nb_val')
+        plt.ylabel('min')
+        plt.title('Nuage de points : min en fonction de nb_val')
+        plt.grid(True)
+        plt.show()
         print(result)
