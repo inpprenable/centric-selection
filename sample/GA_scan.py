@@ -5,6 +5,7 @@ import json
 import math
 import multiprocessing as mp
 import os.path
+import time
 
 import numpy as np
 import pandas as pd
@@ -151,9 +152,9 @@ if __name__ == '__main__':
         if nb_val not in dico:
             dico[nb_val] = {"min": math.inf, "max": 0}
         if args.worst and dico[nb_val]["max"] < -avg_weight:
-            dico[nb_val]["max"] = -avg_weight
+            dico[nb_val]["max"] = -avg_weight.item()
         if not args.worst and dico[nb_val]["min"] > avg_weight:
-            dico[nb_val]["min"] = avg_weight
+            dico[nb_val]["min"] = avg_weight.item()
 
         if args.output is not None:
             write_csv(args.output, dico)
